@@ -1,0 +1,345 @@
+// DSA Intelligence — Database Schema
+// Phase 2 scope: LeetCode profile sync — stats, raw tag-based Topics,
+// Problems, and Submissions. Topics here are LeetCode's own tags
+// as-is (e.g. "Array", "Hash Table") — curating them into the
+// curriculum topic hierarchy from the architecture doc is deferred
+// to the analytics phase (see PROJECT_STATUS.md).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  leetCodeProfile       LeetCodeProfile?
+  submissions           Submission[]
+  topicMastery          UserTopicMastery[]
+  revisionItems         RevisionItem[]
+  mentorMessages        MentorMessage[]
+  reports               Report[]
+  mockInterviewSessions MockInterviewSession[]
+
+  @@map("users")
+}
+
+enum SyncStatus {
+  NEVER_SYNCED
+  SYNCING
+  SUCCESS
+  ERROR
+}
+
+// One row per user, created once they connect a LeetCode account.
+model LeetCodeProfile {
+  id               String     @id @default(cuid())
+  userId           String     @unique
+  leetcodeUsername String
+
+  // Aggregate stats from LeetCode's own counters (matchedUser.submitStats).
+  // Independent of anything we compute ourselves.
+  totalSolved  Int @default(0)
+  easySolved   Int @default(0)
+  mediumSolved Int @default(0)
+  hardSolved   Int @default(0)
+  ranking      Int?
+
+  syncStatus     SyncStatus @default(NEVER_SYNCED)
+  lastSyncedAt   DateTime?
+  lastSyncError  String?
+  lastSyncErrorCode String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("leetcode_profiles")
+}
+
+// A LeetCode topic tag, ingested as-is (e.g. "Array", "Dynamic
+// Programming"). Not yet mapped to the curriculum hierarchy.
+model Topic {
+  id   String @id @default(cuid())
+  name String @unique
+  slug String @unique
+
+  problems ProblemTopic[]
+  mastery  UserTopicMastery[]
+
+  // Edges where this topic is the dependent ("child") or the prerequisite ("parent").
+  requiredBy    TopicRelationship[] @relation("PrerequisiteOf")
+  prerequisites TopicRelationship[] @relation("HasPrerequisite")
+
+  @@map("topics")
+}
+
+model Problem {
+  id          String   @id @default(cuid())
+  leetcodeId  String   @unique
+  slug        String   @unique
+  title       String
+  difficulty  String
+  // Set only for curated/known problems (Phase 6 recommendation
+  // catalog) — "high" | "medium" | null. A tiebreaker for the
+  // recommendation engine, never a filter.
+  interviewRelevance String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  topics        ProblemTopic[]
+  submissions   Submission[]
+  revisionItems RevisionItem[]
+
+  @@map("problems")
+}
+
+model ProblemTopic {
+  problemId String
+  topicId   String
+
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@id([problemId, topicId])
+  @@map("problem_topics")
+}
+
+// One row per (user, LeetCode submission). `leetcodeSubmissionId` lets
+// re-syncs upsert idempotently instead of duplicating rows.
+model Submission {
+  id                   String   @id @default(cuid())
+  userId               String
+  problemId            String
+  leetcodeSubmissionId String
+  status               String
+  submittedAt          DateTime
+  createdAt            DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, leetcodeSubmissionId])
+  @@map("submissions")
+}
+
+// One row per (user, topic, computation) — a time series, not a
+// single current value, so "am I improving" has data to draw from.
+// Written by the deterministic analytics engine (src/lib/analytics)
+// — never by AI, and never hand-edited.
+model UserTopicMastery {
+  id             String   @id @default(cuid())
+  userId         String
+  topicId        String
+  masteryScore   Int
+  confidence     String // "Low" | "Medium" | "High"
+  classification String // "Strong" | "Revision Needed" | "Weak" | "Fundamental Gap" | "Under-Practiced" | "Emerging"
+
+  problemCount Int
+  easyCount    Int
+  mediumCount  Int
+  hardCount    Int
+
+  lastPracticedAt DateTime?
+
+  exposureScore   Float
+  difficultyScore Float
+  recencyScore    Float
+  diversityScore  Float
+
+  explanation String
+  computedAt  DateTime @default(now())
+
+  // Phase 4 additions — the skill-graph-aware read on this same
+  // classification. "solid" | "genuinely-weak" | "prerequisite-gap"
+  // | "insufficient-evidence" | "not-applicable" (no prerequisites
+  // defined for this topic, or classification isn't a "shaky" one).
+  // Nullable so pre-Phase-4 rows and topics with no graph edges are
+  // still valid.
+  gapVerdict      String?
+  gapExplanation  String?
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@map("user_topic_mastery")
+}
+
+// A prerequisite/subtopic edge in the DSA skill graph: `topic`
+// depends on `prerequisite`. Seeded from curated data
+// (src/lib/analytics/skill-graph-data.ts), not user-specific — this
+// is the same graph for everyone. `relationshipType` is descriptive
+// (changes how the explanation reads) but both types are treated the
+// same by the gap-detection algorithm: both are "you should have
+// this down before this one." `strength` (0-1) is how tightly the
+// child actually depends on the parent — gap detection only
+// attributes a topic's weakness to a prerequisite at or above a
+// configurable strength threshold (see ANALYTICS_CONFIG.skillGraph),
+// so a loose/incidental relationship doesn't get blamed.
+model TopicRelationship {
+  id                  String @id @default(cuid())
+  topicId             String
+  prerequisiteTopicId String
+  relationshipType    String // "PREREQUISITE" | "SUBTOPIC"
+  strength            Float
+
+  topic        Topic @relation("PrerequisiteOf", fields: [topicId], references: [id], onDelete: Cascade)
+  prerequisite Topic @relation("HasPrerequisite", fields: [prerequisiteTopicId], references: [id], onDelete: Cascade)
+
+  @@unique([topicId, prerequisiteTopicId])
+  @@map("topic_relationships")
+}
+
+// One row per (user, problem) a user has solved — the current spaced-
+// repetition state. Created once, the first time a solved problem is
+// noticed (src/services/revision/revision-service.ts), then updated
+// in place on every completed revision. This is problem-level
+// tracking, distinct from Phase 3's topic-level "Revision Needed"
+// classification — a topic can look fine overall while individual
+// problems in it are still due for review.
+model RevisionItem {
+  id             String    @id @default(cuid())
+  userId         String
+  problemId      String
+  // Index into ANALYTICS_CONFIG-style REVISION_CONFIG.intervalsDays
+  // (src/lib/revision/config.ts): 0=3 days, 1=1 week, 2=2 weeks,
+  // 3=1 month, 4=2 months.
+  intervalIndex  Int       @default(0)
+  dueAt          DateTime
+  lastReviewedAt DateTime?
+  reviewCount    Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem Problem           @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  history RevisionHistory[]
+
+  @@unique([userId, problemId])
+  @@map("revision_items")
+}
+
+// Append-only log of completed revisions — "revision history" and
+// the raw material for "revision performance" (e.g. the Easy/
+// Moderate/Difficult mix over time). Never edited after creation.
+model RevisionHistory {
+  id               String   @id @default(cuid())
+  revisionItemId   String
+  feedback         String // "Easy" | "Moderate" | "Difficult"
+  previousInterval Int
+  newInterval      Int
+  reviewedAt       DateTime @default(now())
+
+  revisionItem RevisionItem @relation(fields: [revisionItemId], references: [id], onDelete: Cascade)
+
+  @@map("revision_history")
+}
+
+// One continuous mentor chat per user (Phase 9) — no conversation
+// list/switching, just a single running thread, same shape as the
+// familiar single-thread AI-chat pattern rather than a multi-
+// conversation inbox the brief never asked for.
+model MentorMessage {
+  id     String @id @default(cuid())
+  userId String
+  role   String // "user" | "assistant"
+  content String
+
+  // Set only on assistant messages that are progressive hints (see
+  // src/lib/mentor/hint-tracking.ts): 1 Conceptual, 2 Pattern, 3
+  // Approach, 4 Detailed reasoning, 5 Pseudocode, 6 Solution
+  // explanation. Null for every other message — most mentor replies
+  // (readiness questions, "what's next", quizzes) aren't hints at all.
+  hintLevel Int?
+
+  // The problem this message concerns, if any. Deliberately a plain
+  // slug, not a foreign key to Problem: the mentor can discuss any
+  // problem in the curated catalog (or one the student names that
+  // hasn't been ingested yet) before it's ever necessarily a row the
+  // student has a Submission/RevisionItem against.
+  problemSlug String?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("mentor_messages")
+}
+
+// Phase 10: a generated weekly or monthly report, stored so a
+// student can revisit past periods rather than only ever seeing a
+// live-computed "right now" view. `insights` is the deterministic,
+// arithmetic-only structured data (see src/lib/reports/types.ts) —
+// same "no AI in scoring" principle as every other engine in this
+// app; it's built entirely from data already persisted elsewhere
+// (UserTopicMastery's time series, Submission, RevisionHistory), not
+// from any new tracking this phase introduces. `narrative` is the
+// one place in this table AI touches anything: natural-language
+// interpretation of `insights`, written once at generation time and
+// stored alongside it — nullable, because a report with insights but
+// no narrative (narrator unavailable or failed) is still a complete,
+// useful report (see src/services/reports/reports-service.ts).
+//
+// The current, in-progress period is deliberately never written
+// here — only completed periods are stored. "This week so far"
+// changes as the student keeps working and shouldn't be frozen by an
+// early view; the live period is always recomputed fresh instead.
+model Report {
+  id          String   @id @default(cuid())
+  userId      String
+  period      String // "WEEKLY" | "MONTHLY"
+  periodStart DateTime
+  periodEnd   DateTime
+
+  insights  Json
+  narrative Json?
+
+  generatedAt DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, period, periodStart])
+  @@map("reports")
+}
+
+// Phase 11: a mock interview session — 3 personalized problems
+// (warm-up, medium, stretch — see src/lib/interview/problem-selection.ts),
+// self-reported outcomes (no code judge exists in this app; outcomes are
+// what the student reports, not sync-verified), and the resulting
+// performance report + AI narrative, generated once and stored so past
+// sessions stay viewable. `problems` is written at session start;
+// `outcomes`/`report`/`narrative` are all null until the student finishes
+// and are written together, once, by completeMockInterviewSession — a
+// session is never partially completed in storage.
+model MockInterviewSession {
+  id     String @id @default(cuid())
+  userId String
+  status String // "IN_PROGRESS" | "COMPLETED"
+
+  problems  Json // MockInterviewProblemPick[] — the 3 selected problems
+  outcomes  Json? // MockInterviewProblemOutcome[] — self-reported, null until completed
+  report    Json? // MockInterviewPerformanceReport — deterministic, null until completed
+  narrative Json? // MockInterviewNarrative — AI-narrated, null until completed or if narration failed
+
+  startedAt   DateTime
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt])
+  @@map("mock_interview_sessions")
+}

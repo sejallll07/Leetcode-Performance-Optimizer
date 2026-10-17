@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+/*
+  DSA Intelligence design tokens.
+  Brand direction: calm, focused, "coach" rather than "dashboard" —
+  an indigo primary (progress/focus) with a warm amber accent
+  (used sparingly, for streaks/highlights), on a quiet neutral base.
+
+  Dark is the true default (:root, no attribute needed) rather than
+  conditional on the OS via a media query — matches every new
+  account's actual experience. Setting data-theme="light" on <html>
+  (see ThemeProvider) opts into the light palette instead. The
+  attribute is set by a blocking inline script in the root layout
+  before first paint, so there's no flash of the wrong theme.
+*/
+:root {
+  --background: #0b0b0d;
+  --surface: #161618;
+  --surface-muted: #1e1e21;
+  --foreground: #f4f4f5;
+  --foreground-muted: #a1a1aa;
+  --border: #2a2a2e;
+
+  --brand: #818cf8;
+  --brand-hover: #a5b4fc;
+  --brand-foreground: #0b0b0d;
+  --brand-subtle: #1e1b4b;
+
+  --accent: #fbbf24;
+  --accent-subtle: #451a03;
+
+  --success: #4ade80;
+  --success-subtle: #052e16;
+  --warning: #fbbf24;
+  --warning-subtle: #451a03;
+  --danger: #f87171;
+  --danger-subtle: #450a0a;
+
+  --radius: 0.75rem;
+}
+
+:root[data-theme="light"] {
+  --background: #fafafa;
+  --surface: #ffffff;
+  --surface-muted: #f4f4f6;
+  --foreground: #18181b;
+  --foreground-muted: #52525b;
+  --border: #e4e4e7;
+
+  --brand: #4f46e5;
+  --brand-hover: #4338ca;
+  --brand-foreground: #ffffff;
+  --brand-subtle: #eef2ff;
+
+  --accent: #d97706;
+  --accent-subtle: #fef3c7;
+
+  --success: #16a34a;
+  --success-subtle: #dcfce7;
+  --warning: #d97706;
+  --warning-subtle: #fef3c7;
+  --danger: #dc2626;
+  --danger-subtle: #fee2e2;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-border: var(--border);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-subtle: var(--brand-subtle);
+
+  --color-accent: var(--accent);
+  --color-accent-subtle: var(--accent-subtle);
+
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+
+  --radius-md: var(--radius);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+::selection {
+  background: var(--brand-subtle);
+  color: var(--brand);
+}
