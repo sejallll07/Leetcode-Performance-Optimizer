@@ -9,9 +9,8 @@ import type { MentorProvider, MentorReplyResult } from "@/services/mentor/mentor
  * request, the search_problem_catalog tool loop, response parsing and
  * error handling all live in the shared client (mentor-messages-client.ts).
  * The API key is read from `process.env.OPENROUTER_API_KEY` inside this
- * server-only module and never leaves it.  * This provider is selected by mentor-service.ts when
- * MENTOR_AI_PROVIDER is set to "openrouter".
- * yet; that belongs to a later step.
+ * server-only module and never leaves it. This provider is selected by
+ * `mentor-service.ts` when `MENTOR_AI_PROVIDER` is set to `"openrouter"`.
  */
 
 const OPENROUTER_MESSAGES_URL = "https://openrouter.ai/api/v1/messages";
