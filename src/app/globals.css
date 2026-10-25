@@ -103,3 +103,14 @@ body {
   background: var(--brand-subtle);
   color: var(--brand);
 }
+
+/* Subtle, theme-aware scrollbars for Mentor scroll containers only.
+   Opt in by adding the class; nothing else in the app is affected. */
+.mentor-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--foreground-muted) 45%, transparent) transparent;
+}
+
+.mentor-scrollbar:hover {
+  scrollbar-color: color-mix(in srgb, var(--foreground-muted) 70%, transparent) transparent;
+}
