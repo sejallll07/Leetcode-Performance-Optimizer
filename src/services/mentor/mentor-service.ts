@@ -14,6 +14,7 @@ import { computeHintProgress } from "@/lib/mentor/hint-tracking";
 import { searchProblemCatalog } from "@/lib/mentor/problem-search";
 import { MENTOR_CONFIG } from "@/lib/mentor/config";
 import { ClaudeMentorProvider } from "@/services/mentor/claude-mentor-provider";
+import { OpenRouterMentorProvider } from "@/services/mentor/openrouter-mentor-provider";
 import type { MentorProvider } from "@/services/mentor/mentor-provider";
 import type { MentorChatTurn } from "@/lib/mentor/types";
 
@@ -22,6 +23,20 @@ export type SendMentorMessageResult =
   | { ok: false; error: string; retryable: boolean };
 
 const MAX_MESSAGE_LENGTH = 4000;
+
+/**
+ * Picks the default AI provider from MENTOR_AI_PROVIDER. The variable is read
+ * each time this is called (never at module load), and it only runs when the
+ * caller did not inject a provider. "openrouter" selects OpenRouter; unset,
+ * empty, "anthropic" or any unrecognized value keeps the Anthropic default.
+ */
+function createConfiguredMentorProvider(): MentorProvider {
+  const configured = (process.env.MENTOR_AI_PROVIDER ?? "").trim().toLowerCase();
+  if (configured === "openrouter") {
+    return new OpenRouterMentorProvider();
+  }
+  return new ClaudeMentorProvider();
+}
 
 /** The whole visible conversation, oldest first — what the chat page renders. */
 export async function getMentorConversation(userId: string): Promise<MentorMessageRow[]> {
@@ -51,7 +66,7 @@ export async function sendMentorMessage(
     return { ok: false, error: "That message is too long — try breaking it into smaller questions.", retryable: false };
   }
 
-  const provider = options.provider ?? new ClaudeMentorProvider();
+  const provider = options.provider ?? createConfiguredMentorProvider();
   const now = options.now ?? new Date();
 
   // Persisted immediately, before the AI call — a failed or slow AI
